@@ -7246,7 +7246,7 @@ class _ExportScopeDialog(QDialog):
         root.addWidget(title)
 
         # ── Radio buttons ─────────────────────────────────────────────────
-        from PySide6.QtWidgets import QRadioButton, QButtonGroup, QScrollArea, QGroupBox
+        from PySide6.QtWidgets import QRadioButton, QButtonGroup, QGroupBox
 
         self._btn_grp = QButtonGroup(self)
 

@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def main() -> int:
     from PySide6.QtWidgets import QApplication, QMessageBox, QStyle, QStyleOptionViewItem
-    from PySide6.QtCore import Qt, QPoint
+    from PySide6.QtCore import Qt
     from PySide6.QtTest import QTest
     app = QApplication.instance() or QApplication([])
     from evtx_tool.gui.main_window import _ExportScopeDialog
