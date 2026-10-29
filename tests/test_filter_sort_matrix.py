@@ -190,6 +190,8 @@ def main() -> int:
     def ev_val(ev, key):
         if key == "timestamp_date":
             return apply_tz(ev.get("timestamp", ""))[:10].lower()
+        if key == "timestamp_hour":    # the Timestamp popup's hour leaves
+            return apply_tz(ev.get("timestamp", ""))[:13].lower()
         if key == "log":
             return str(ev.get("log") or ev.get("channel", "")).lower()
         return str(ev.get(key, "")).lower()
@@ -397,6 +399,8 @@ def main() -> int:
                     for x in _tbl[_ac].to_pylist())
         _jt["timestamp_date"] = collections.Counter(
             apply_tz(str(t))[:10].lower() for t in _tbl["timestamp_utc"].to_pylist())
+        _jt["timestamp_hour"] = collections.Counter(
+            apply_tz(str(t))[:13].lower() for t in _tbl["timestamp_utc"].to_pylist())
 
         _inv = {v: k for k, v in ColumnFilterPopup.FILTERABLE.items()}
         for _key, _counter in _jt.items():

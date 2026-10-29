@@ -28,7 +28,7 @@ def main() -> int:
     from PySide6.QtCore import Qt
     app = QApplication.instance() or QApplication([])
     from evtx_tool.gui.main_window import MainWindow, ColumnFilterPopup
-    from evtx_tool.gui.models import COL_TS, set_tz_config, apply_tz
+    from evtx_tool.gui.models import COL_TS, set_tz_config
     from evtx_tool.gui.jm_col_worker import NormalColValueWorker, ColValueWorker
 
     res = []
