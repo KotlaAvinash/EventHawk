@@ -7203,8 +7203,17 @@ class _ExportScopeDialog(QDialog):
       • Export All Separate   — one output file per source EVTX file
       • Export Specific Files — user picks which source files to include
 
-    When "Specific Files" is chosen the dialog reveals a scrollable checklist
-    of all loaded source files.
+    When "Specific Files" is chosen the dialog reveals a searchable checklist
+    of all loaded source files.  With hundreds of logs loaded, ticking them one
+    by one is impractical, so the list supports:
+
+      • a search box that narrows the list as you type (file name, any case);
+      • Explorer-style selection — click, Ctrl+click, Shift+click, Ctrl+A —
+        and ticking/unticking every selected row at once (Space, clicking a
+        selected row's box, or the "Tick / Untick selected" buttons);
+      • All / None acting on the rows the search currently shows;
+      • a live "N of M files will be exported" count, which includes ticked
+        files the search is hiding, so nothing is exported by surprise.
     """
 
     def __init__(
@@ -7220,7 +7229,7 @@ class _ExportScopeDialog(QDialog):
         self.setMinimumWidth(440)
         self._all_file_paths = all_file_paths
         self._scope = "combined"       # default
-        self._file_checks: list[tuple[QCheckBox, str]] = []
+        self._bulk_check = False       # re-entrancy guard for itemChanged
 
         from .theme import COLORS
 
@@ -7268,38 +7277,56 @@ class _ExportScopeDialog(QDialog):
         files_layout.setSpacing(3)
         files_layout.setContentsMargins(8, 8, 8, 8)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFixedHeight(min(180, 32 * max(1, len(all_file_paths))))
-        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._file_search = QLineEdit()
+        self._file_search.setPlaceholderText("Search files…")
+        self._file_search.setClearButtonEnabled(True)
+        self._file_search.textChanged.connect(self._filter_files)
+        files_layout.addWidget(self._file_search)
 
-        inner = QWidget()
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setSpacing(2)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-
+        self._file_list = QListWidget()
+        self._file_list.setSelectionMode(
+            QAbstractItemView.SelectionMode.ExtendedSelection
+        )
+        self._file_list.setUniformItemSizes(True)
+        self._file_list.setFixedHeight(min(220, 24 * max(1, len(all_file_paths)) + 6))
         for fp in all_file_paths:
-            chk = QCheckBox(os.path.basename(fp))
-            chk.setChecked(True)
-            chk.setToolTip(fp)
-            inner_layout.addWidget(chk)
-            self._file_checks.append((chk, fp))
+            item = QListWidgetItem(os.path.basename(fp))
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+            item.setCheckState(Qt.CheckState.Checked)
+            item.setToolTip(fp)
+            item.setData(Qt.ItemDataRole.UserRole, fp)
+            self._file_list.addItem(item)
+        self._file_list.itemChanged.connect(self._on_file_item_changed)
+        self._file_list.installEventFilter(self)
+        self._file_list.viewport().installEventFilter(self)
+        files_layout.addWidget(self._file_list)
 
-        scroll.setWidget(inner)
-        files_layout.addWidget(scroll)
-
-        # Select All / None mini-buttons inside the box
+        # All / None act on the shown rows; Tick / Untick on the selected ones
         mini_row = QHBoxLayout()
         btn_all_files = QPushButton("All")
         btn_all_files.setMaximumWidth(50)
-        btn_all_files.clicked.connect(lambda: [c.setChecked(True) for c, _ in self._file_checks])
+        btn_all_files.setToolTip("Tick every file shown (respects the search)")
+        btn_all_files.clicked.connect(lambda: self._set_checked(self._shown_items(), True))
         btn_none_files = QPushButton("None")
         btn_none_files.setMaximumWidth(55)
-        btn_none_files.clicked.connect(lambda: [c.setChecked(False) for c, _ in self._file_checks])
+        btn_none_files.setToolTip("Untick every file shown (respects the search)")
+        btn_none_files.clicked.connect(lambda: self._set_checked(self._shown_items(), False))
+        btn_tick_sel = QPushButton("Tick selected")
+        btn_tick_sel.setToolTip("Tick the highlighted files (Ctrl/Shift+click to highlight several)")
+        btn_tick_sel.clicked.connect(lambda: self._set_checked(self._selected_items(), True))
+        btn_untick_sel = QPushButton("Untick selected")
+        btn_untick_sel.setToolTip("Untick the highlighted files")
+        btn_untick_sel.clicked.connect(lambda: self._set_checked(self._selected_items(), False))
         mini_row.addWidget(btn_all_files)
         mini_row.addWidget(btn_none_files)
+        mini_row.addWidget(btn_tick_sel)
+        mini_row.addWidget(btn_untick_sel)
         mini_row.addStretch()
         files_layout.addLayout(mini_row)
+
+        self._files_count = QLabel()
+        files_layout.addWidget(self._files_count)
+        self._update_files_count()
 
         self._files_box.setVisible(False)
         root.addWidget(self._files_box)
@@ -7344,7 +7371,129 @@ class _ExportScopeDialog(QDialog):
             }}
             QPushButton:hover {{ background: {COLORS.get('accent', '#7a5c1e')}; color: white; }}
             QScrollArea {{ border: none; background: transparent; }}
+            QListWidget {{
+                background: {COLORS['bg_input']}; color: {COLORS['text']};
+                border: 1px solid {COLORS['border']}; border-radius: 3px;
+                font-size: 9pt; outline: none;
+            }}
+            QListWidget::item {{ padding: 2px 4px; }}
+            QListWidget::item:selected {{
+                background: {COLORS['selected_bg']}; color: {COLORS['text']};
+            }}
+            QListWidget::item:hover {{ background: {COLORS['bg_hover']}; }}
+            QListWidget::indicator {{
+                width: 13px; height: 13px; border: 1px solid {COLORS['border']};
+                border-radius: 2px; background: {COLORS['bg_input']};
+            }}
+            QListWidget::indicator:checked {{
+                background: {COLORS['accent']}; border-color: {COLORS['accent_hover']};
+            }}
+            QLineEdit {{
+                background: {COLORS['bg_input']}; color: {COLORS['text']};
+                border: 1px solid {COLORS['border']}; border-radius: 3px;
+                padding: 3px 6px; font-size: 9pt;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS['border_focus']}; }}
         """)
+
+    # ── Specific-files list helpers ───────────────────────────────────────
+
+    def _items(self) -> list:
+        return [self._file_list.item(i) for i in range(self._file_list.count())]
+
+    def _shown_items(self) -> list:
+        return [it for it in self._items() if not it.isHidden()]
+
+    def _selected_items(self) -> list:
+        return [it for it in self._file_list.selectedItems() if not it.isHidden()]
+
+    def _set_checked(self, items, checked: bool) -> None:
+        state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+        self._bulk_check = True
+        try:
+            for it in items:
+                it.setCheckState(state)
+        finally:
+            self._bulk_check = False
+        self._update_files_count()
+
+    def _filter_files(self, text: str) -> None:
+        """Show only files whose name contains *text* (any case).
+
+        Filtering never changes what is ticked; the count below the list keeps
+        reporting every ticked file, shown or not.
+        """
+        needle = text.strip().lower()
+        for it in self._items():
+            it.setHidden(bool(needle) and needle not in it.text().lower())
+        # A hidden row must not stay highlighted: "Tick selected" would act on
+        # files the analyst can no longer see.
+        for it in self._file_list.selectedItems():
+            if it.isHidden():
+                it.setSelected(False)
+        self._update_files_count()
+
+    def _on_file_item_changed(self, item) -> None:
+        if not self._bulk_check:
+            self._update_files_count()
+
+    def _box_hit(self, pos):
+        """The item whose checkbox is under viewport point *pos*, else None."""
+        from PySide6.QtWidgets import QStyleOptionViewItem
+        item = self._file_list.itemAt(pos)
+        if item is None:
+            return None
+        opt = QStyleOptionViewItem()
+        idx = self._file_list.indexFromItem(item)
+        opt.rect = self._file_list.visualRect(idx)
+        opt.widget = self._file_list
+        self._file_list.itemDelegate().initStyleOption(opt, idx)
+        box = self._file_list.style().subElementRect(
+            QStyle.SubElement.SE_ItemViewItemCheckIndicator, opt, self._file_list
+        )
+        return item if box.adjusted(-2, -2, 2, 2).contains(pos) else None
+
+    def eventFilter(self, obj, event) -> bool:
+        # Clicking the box of a highlighted row ticks/unticks every highlighted
+        # row and keeps the highlight (as Explorer does).  Left to Qt, the box
+        # toggles only that row and the click collapses the selection to it.
+        if (obj is self._file_list.viewport()
+                and event.type() in (QEvent.Type.MouseButtonPress,
+                                     QEvent.Type.MouseButtonRelease,
+                                     QEvent.Type.MouseButtonDblClick)
+                and event.button() == Qt.MouseButton.LeftButton
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            item = self._box_hit(event.position().toPoint())
+            sel = self._selected_items()
+            if item is not None and item in sel and len(sel) > 1:
+                if event.type() == QEvent.Type.MouseButtonRelease:
+                    self._set_checked(sel, item.checkState() != Qt.CheckState.Checked)
+                return True
+
+        # Space ticks/unticks every highlighted row (Qt alone toggles only the
+        # current one).  The new state is the opposite of the current row's.
+        if (obj is self._file_list and event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_Space):
+            sel = self._selected_items()
+            if sel:
+                cur = self._file_list.currentItem()
+                ref = cur if cur in sel else sel[0]
+                self._set_checked(sel, ref.checkState() != Qt.CheckState.Checked)
+                return True
+        return super().eventFilter(obj, event)
+
+    def _update_files_count(self) -> None:
+        total = self._file_list.count()
+        ticked = sum(1 for it in self._items() if it.checkState() == Qt.CheckState.Checked)
+        shown = len(self._shown_items())
+        hidden_ticked = sum(1 for it in self._items()
+                            if it.isHidden() and it.checkState() == Qt.CheckState.Checked)
+        text = f"{ticked} of {total} file(s) will be exported"
+        if shown != total:
+            text += f"  ·  {shown} shown"
+            if hidden_ticked:
+                text += f", {hidden_ticked} ticked but hidden by the search"
+        self._files_count.setText(text)
 
     def _on_ok(self) -> None:
         bid = self._btn_grp.checkedId()
@@ -7362,7 +7511,8 @@ class _ExportScopeDialog(QDialog):
 
     def selected_files(self) -> set:
         """Returns set of full file paths selected (only meaningful for 'specific')."""
-        return {fp for chk, fp in self._file_checks if chk.isChecked()}
+        return {it.data(Qt.ItemDataRole.UserRole) for it in self._items()
+                if it.checkState() == Qt.CheckState.Checked}
 
 
 # ── Main Window ───────────────────────────────────────────────────────────────
