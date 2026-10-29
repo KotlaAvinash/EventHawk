@@ -1520,12 +1520,15 @@ class EventFilterProxyModel(QSortFilterProxyModel):
         # Virtual key semantics:
         #   "timestamp_date" → display-timezone YYYY-MM-DD (via apply_tz), so
         #       the filter matches the date the user actually sees in the table.
+        #   "timestamp_hour" → the same, to the hour: "YYYY-MM-DD HH".
         #   "log" → ev["log"] falling back to ev["channel"], matching COL_LOG
         #       display logic in EventTableModel.data().
         if self._quick_excludes:
             for key, excl_set in self._quick_excludes.items():
                 if key == "timestamp_date":
                     ev_val = apply_tz(ev.get("timestamp", ""))[:10].lower()
+                elif key == "timestamp_hour":
+                    ev_val = apply_tz(ev.get("timestamp", ""))[:13].lower()
                 elif key == "log":
                     ev_val = str(ev.get("log") or ev.get("channel", "")).lower()
                 else:
@@ -1536,6 +1539,8 @@ class EventFilterProxyModel(QSortFilterProxyModel):
             for key, incl_set in self._quick_includes.items():
                 if key == "timestamp_date":
                     ev_val = apply_tz(ev.get("timestamp", ""))[:10].lower()
+                elif key == "timestamp_hour":
+                    ev_val = apply_tz(ev.get("timestamp", ""))[:13].lower()
                 elif key == "log":
                     ev_val = str(ev.get("log") or ev.get("channel", "")).lower()
                 else:

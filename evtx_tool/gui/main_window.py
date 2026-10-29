@@ -459,7 +459,7 @@ class ColumnFilterPopup(QDialog):
     FILTERABLE = {
         1:  "event_id",        # Event ID
         2:  "level_name",      # Level
-        3:  "timestamp_date",  # Timestamp — date-level grouping (YYYY-MM-DD)
+        3:  "timestamp_hour",  # Timestamp — Year > Month > Day > Hour tree ("YYYY-MM-DD HH")
         4:  "computer",        # Computer
         5:  "channel",         # Channel
         6:  "user_id",         # User
@@ -501,10 +501,14 @@ class ColumnFilterPopup(QDialog):
         # instead of one flat row per date.  Every other column keeps the flat
         # checkbox list (whose search/check semantics carry field-reported bug
         # fixes that must not be disturbed).
-        self._is_date_tree = self.FILTERABLE.get(col_index) == "timestamp_date"
+        self._is_date_tree = self.FILTERABLE.get(col_index) in ("timestamp_date",
+                                                                "timestamp_hour")
         self._tree: QTreeWidget | None = None
         self._year_items: dict[str, QTreeWidgetItem] = {}
         self._month_items: dict[tuple[str, str], QTreeWidgetItem] = {}
+        # Day rows exist as groups only when the values carry an hour
+        # ("YYYY-MM-DD HH"); with plain dates the day is the leaf.
+        self._day_items: dict[tuple[str, str, str], QTreeWidgetItem] = {}
         self._tree_sync = False          # re-entrancy guard for itemChanged
         self._tree_pre_search = None     # {value: was_checked}, see _filter_tree
         self.setMinimumWidth(260 if self._is_date_tree else 220)
@@ -660,6 +664,21 @@ class ColumnFilterPopup(QDialog):
             return None
         return y, m, d
 
+    @classmethod
+    def _split_hour(cls, sval: str):
+        """``"2024-05-14 13"`` → ``("2024", "05", "14", "13")``; else ``None``.
+
+        Same strictness as ``_split_date``: a malformed hour goes to the
+        "(unparsed date)" group rather than into a plausible-looking bucket.
+        """
+        if len(sval) != 13 or sval[10] != " ":
+            return None
+        ymd = cls._split_date(sval[:10])
+        hh = sval[11:]
+        if ymd is None or not hh.isdigit() or not 0 <= int(hh) <= 23:
+            return None
+        return (*ymd, hh)
+
     @staticmethod
     def _insert_sorted(parent, child, key, reverse: bool) -> None:
         """Insert *child* under *parent* keeping children ordered by *key*."""
@@ -672,22 +691,39 @@ class ColumnFilterPopup(QDialog):
         parent.insertChild(idx, child)
 
     def _tree_add_value(self, sval: str, count: int):
-        """Find-or-create the Year/Month rows for *sval* and add its day leaf.
+        """Find-or-create the Year/Month(/Day) rows for *sval* and add its leaf.
+
+        *sval* is a date (``YYYY-MM-DD``, leaf = day) or a date with hour
+        (``YYYY-MM-DD HH``, leaf = hour under a Day row), so the tree reads
+        Year > Month > Day > Hour and an analyst can narrow a large corpus to
+        the exact hours of interest.
 
         Returns the ``_DateLeafProxy`` for the new leaf, or ``None`` if this
         value is already present (so a merged search result never duplicates a
-        day that the initial top-1000 already supplied).
+        value that the initial load already supplied).
         """
-        parsed = self._split_date(sval)
+        hour = self._split_hour(sval)
+        parsed = hour[:3] if hour else self._split_date(sval)
         if parsed is None:
             # Unparseable → single flat leaf under an "(unparsed date)" group.
             ykey, mkey = _DATE_UNKNOWN_GROUP, ""
             leaf_text = sval if sval else "(empty)"
+            sort_text = leaf_text
             search_key = sval.lower()
+        elif hour is not None:
+            y, m, d, hh = hour
+            ykey, mkey = y, m
+            leaf_text = f"{hh}:00 – {hh}:59"
+            sort_text = hh
+            # "2024-05-14" finds every hour of that day, "13:00" that hour on
+            # every day, "2024-05-14 13" the one hour.
+            search_key = (f"{sval} {_MONTH_NAMES[int(m) - 1]} {y} "
+                          f"{hh}:00").lower()
         else:
             y, m, d = parsed
             ykey, mkey = y, m
             leaf_text = d
+            sort_text = d
             # Lets the analyst type "2024", "may", "2024-05" or the full date.
             search_key = f"{sval} {_MONTH_NAMES[int(m) - 1]} {y}".lower()
 
@@ -727,6 +763,22 @@ class ColumnFilterPopup(QDialog):
                 self._insert_sorted(year_item, month_item, mkey, reverse=False)
                 self._month_items[(ykey, mkey)] = month_item
             parent = month_item
+            if hour is not None:
+                dkey = hour[2]
+                day_item = self._day_items.get((ykey, mkey, dkey))
+                if day_item is None:
+                    day_item = QTreeWidgetItem()
+                    day_item.setText(0, dkey)
+                    day_item.setFlags(
+                        Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled
+                    )
+                    day_item.setCheckState(0, Qt.CheckState.Checked)
+                    day_item.setData(0, _ROLE_SORT_KEY, dkey)
+                    day_item.setData(0, _ROLE_SEARCH_KEY,
+                                     f"{ykey}-{mkey}-{dkey}".lower())
+                    self._insert_sorted(month_item, day_item, dkey, reverse=False)
+                    self._day_items[(ykey, mkey, dkey)] = day_item
+                parent = day_item
 
         for i in range(parent.childCount()):
             if parent.child(i).data(0, _ROLE_FILTER_VALUE) == sval:
@@ -737,36 +789,29 @@ class ColumnFilterPopup(QDialog):
         leaf.setFlags(Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEnabled)
         leaf.setCheckState(0, Qt.CheckState.Checked)
         leaf.setData(0, _ROLE_FILTER_VALUE, sval)
-        leaf.setData(0, _ROLE_SORT_KEY, leaf_text)
+        leaf.setData(0, _ROLE_SORT_KEY, sort_text)
         leaf.setData(0, _ROLE_COUNT, str(int(count)))
         leaf.setData(0, _ROLE_SEARCH_KEY, search_key)
-        self._insert_sorted(parent, leaf, leaf_text, reverse=False)
+        self._insert_sorted(parent, leaf, sort_text, reverse=False)
 
         proxy = _DateLeafProxy(leaf, self)
         self._checkboxes.append(proxy)
         return proxy
 
     def _refresh_group_labels(self) -> None:
-        """Re-stamp year/month rows with the summed count beneath them."""
+        """Re-stamp year/month/day rows with the summed count beneath them."""
+        def total(node) -> int:
+            if node.childCount() == 0:
+                return int(node.data(0, _ROLE_COUNT) or 0)
+            return sum(total(node.child(i)) for i in range(node.childCount()))
+
+        for (_y, _m, dkey), day_item in self._day_items.items():
+            day_item.setText(0, f"{dkey}  ({total(day_item):,})")
         for (ykey, mkey), month_item in self._month_items.items():
-            total = sum(
-                int(month_item.child(i).data(0, _ROLE_COUNT) or 0)
-                for i in range(month_item.childCount())
-            )
             name = _MONTH_NAMES[int(mkey) - 1]
-            month_item.setText(0, f"{name}  ({total:,})")
+            month_item.setText(0, f"{name}  ({total(month_item):,})")
         for ykey, year_item in self._year_items.items():
-            total = 0
-            for i in range(year_item.childCount()):
-                child = year_item.child(i)
-                if child.childCount():
-                    total += sum(
-                        int(child.child(j).data(0, _ROLE_COUNT) or 0)
-                        for j in range(child.childCount())
-                    )
-                else:
-                    total += int(child.data(0, _ROLE_COUNT) or 0)
-            year_item.setText(0, f"{ykey}  ({total:,})")
+            year_item.setText(0, f"{ykey}  ({total(year_item):,})")
 
     def _set_leaf_checked(self, item: QTreeWidgetItem, checked: bool) -> None:
         """Set one leaf's check state and refresh its ancestors' tri-state."""
@@ -929,7 +974,12 @@ class ColumnFilterPopup(QDialog):
                         0,
                         Qt.CheckState.Checked if match else Qt.CheckState.Unchecked,
                     )
-            # A month/year row is visible when any day under it is.
+            # A day/month/year row is visible when anything under it is
+            # (bottom-up, so a day hidden here also hides an empty month).
+            for day_item in self._day_items.values():
+                vis = any(not day_item.child(i).isHidden()
+                          for i in range(day_item.childCount()))
+                day_item.setHidden(not vis)
             for month_item in self._month_items.values():
                 vis = any(not month_item.child(i).isHidden()
                           for i in range(month_item.childCount()))
@@ -10925,7 +10975,7 @@ class MainWindow(QMainWindow):
         # resolve_col_expr handles timestamp_date dynamically (display-TZ
         # aware) so this sync fallback shows the same date format the user
         # sees in the event table.
-        from evtx_tool.gui.jm_col_worker import resolve_col_expr
+        from evtx_tool.gui.jm_col_worker import resolve_col_expr, popup_value_limit
         expr = resolve_col_expr(col_key)
         if not expr:
             return {}
@@ -10937,7 +10987,8 @@ class MainWindow(QMainWindow):
                 rows = _con.execute(
                     f"SELECT {expr}, COUNT(*) FROM events "
                     f"WHERE {expr} IS NOT NULL "
-                    f"GROUP BY {expr} ORDER BY COUNT(*) DESC LIMIT 1000"
+                    f"GROUP BY {expr} ORDER BY COUNT(*) DESC "
+                    f"LIMIT {popup_value_limit(col_key)}"
                 ).fetchall()
             finally:
                 _con.close()
@@ -15156,8 +15207,9 @@ class MainWindow(QMainWindow):
             self._tz_custom_offset_min,
         )
 
-        # Drop the cached column-popup values.  "timestamp_date" is the one
-        # column whose values depend on the display timezone, and neither cache
+        # Drop the cached column-popup values.  The timestamp keys
+        # ("timestamp_hour" / "timestamp_date") are the ones whose values
+        # depend on the display timezone, and neither cache
         # key carries the timezone -- normal mode keys on
         # ("normal", col_key, len(visible_events)) and Juggernaut on
         # (col_key, where_sql, where_params).  Neither changes when the analyst

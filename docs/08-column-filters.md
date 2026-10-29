@@ -38,6 +38,31 @@ Column filter popups work on all columns:
 
 ---
 
+## Timestamp: Year > Month > Day > Hour tree
+
+The **Timestamp** column's popup is a tree instead of a flat list, so a long
+capture can be narrowed to the exact hours of interest:
+
+```
+▾ (Select All)
+  ▾ 2026  (12,038)
+    ▸ September  (611)
+    ▾ October  (11,427)
+      ▸ 25  (3,315)
+      ▾ 26  (3,433)
+          ☐ 00:00 – 00:59  (19)
+          ☑ 01:00 – 01:59  (4)
+```
+
+- **▸ / ▾** — click to open or close a year, month or day (double-clicking the row works too).
+- **☑ / – / ☐** — a tick keeps those events, a dash means only some of the hours beneath are kept, an empty box drops them. Ticking a year, month or day ticks everything under it.
+- Every level shows its event count, so the busy day or the quiet hour is visible before opening it.
+- Search accepts `2026`, `october`, `2026-10-26` (all hours of that day), `13:00` (that hour on every day) or `2026-10-26 13` (one hour).
+- Hours are in the **display timezone** (Time zone menu), the same times the table shows — including half-hour zones such as UTC+05:30.
+- Unlike other columns, every hour is listed (not just the 1000 busiest), so a quiet 03:00 hour is never left out.
+
+---
+
 ## How It Works in Juggernaut Mode
 
 In JM, the popup query runs via a separate `ColValueWorker` thread that registers the Arrow table in its own DuckDB connection and runs:

@@ -115,7 +115,25 @@ def _system_tz_name() -> "str | None":
 
 
 def _timestamp_date_expr() -> str:
-    """DuckDB expression for the YYYY-MM-DD label in the display timezone.
+    """DuckDB expression for the YYYY-MM-DD label in the display timezone."""
+    return _timestamp_bucket_expr("%Y-%m-%d", 10)
+
+
+def _timestamp_hour_expr() -> str:
+    """DuckDB expression for the ``YYYY-MM-DD HH`` label in the display timezone.
+
+    Feeds the hour level of the Timestamp column's date tree.  Same timezone
+    handling as the date label, one strftime field longer.
+    """
+    return _timestamp_bucket_expr("%Y-%m-%d %H", 13)
+
+
+def _timestamp_bucket_expr(fmt: str, width: int) -> str:
+    """DuckDB expression formatting the event time in the display timezone.
+
+    *fmt* is the strftime pattern and *width* the length of the matching
+    prefix of the raw ISO text (used for the cheap UTC slice; a ``T``
+    separator in the raw value is normalised to the space strftime emits).
 
     Mode-specific strategy:
 
@@ -136,14 +154,17 @@ def _timestamp_date_expr() -> str:
     Falls back to the UTC string slice on any error so a malformed TZ state
     cannot break the popup / quick-filter pipeline.
     """
+    utc_slice = f"LEFT(CAST(timestamp_utc AS VARCHAR), {width})"
+    if width > 10:
+        utc_slice = f"replace({utc_slice}, 'T', ' ')"
     try:
         from evtx_tool.gui.models import _tz_state as _state
     except Exception:
-        return "LEFT(CAST(timestamp_utc AS VARCHAR), 10)"
+        return utc_slice
     mode = _state.get("mode", "utc")
 
     if mode == "utc":
-        return "LEFT(CAST(timestamp_utc AS VARCHAR), 10)"
+        return utc_slice
 
     if mode in ("specific", "local"):
         if mode == "local":
@@ -163,18 +184,18 @@ def _timestamp_date_expr() -> str:
                 "strftime("
                 "CAST(timestamp_utc AS TIMESTAMP) AT TIME ZONE 'UTC' "
                 f"AT TIME ZONE '{tz_name}', "
-                "'%Y-%m-%d')"
+                f"'{fmt}')"
             )
 
     # local / custom — offset-based fallback (no per-event DST awareness).
     off = _tz_offset_seconds()
     if off == 0:
-        return "LEFT(CAST(timestamp_utc AS VARCHAR), 10)"
+        return utc_slice
     sign = "+" if off > 0 else "-"
     return (
         "strftime("
         f"CAST(timestamp_utc AS TIMESTAMP) {sign} INTERVAL '{abs(off)} seconds', "
-        "'%Y-%m-%d')"
+        f"'{fmt}')"
     )
 
 
@@ -187,7 +208,23 @@ def resolve_col_expr(col_key: str) -> str | None:
     """
     if col_key == "timestamp_date":
         return _timestamp_date_expr()
+    if col_key == "timestamp_hour":
+        return _timestamp_hour_expr()
     return _COL_MAP.get(col_key)
+
+
+# Most columns show their 1000 most frequent values.  The hour column must not
+# be ranked that way: on a long corpus the quiet hours (03:00 on a Sunday) are
+# exactly the ones cut, and they are often the ones an investigation needs.
+# Distinct hours are bounded by the time span (50,000 h is ~5.7 years), so
+# this keeps every hour for any realistic log set.
+_POPUP_VALUE_LIMIT = 1000
+_POPUP_VALUE_LIMIT_BY_KEY = {"timestamp_hour": 50_000}
+
+
+def popup_value_limit(col_key: str) -> int:
+    """How many distinct values the column popup loads for *col_key*."""
+    return _POPUP_VALUE_LIMIT_BY_KEY.get(col_key, _POPUP_VALUE_LIMIT)
 
 
 # ── No-op shim kept for any external code that imports _register_regexp ────────
@@ -261,7 +298,9 @@ class NormalColValueWorker(QThread):
     # timestamp_date is intentionally not in _COL_MAP (it's dynamic — see
     # _timestamp_date_expr).  Re-add it here so the NormalColValueWorker
     # gate still recognises it as a valid quick-filter key.
-    _ALLOWED_KEYS: frozenset = frozenset({*_COL_MAP.keys(), "timestamp_date"})
+    _ALLOWED_KEYS: frozenset = frozenset(
+        {*_COL_MAP.keys(), "timestamp_date", "timestamp_hour"}
+    )
 
     def __init__(
         self,
@@ -301,20 +340,25 @@ class NormalColValueWorker(QThread):
         """
         if key == "timestamp_date":
             return NormalColValueWorker._display_date(ev.get("timestamp", ""))
+        if key == "timestamp_hour":
+            return NormalColValueWorker._display_date(ev.get("timestamp", ""), 13)
         if key == "log":
             return str(ev.get("log") or ev.get("channel", "")).lower()
         return str(ev.get(key, "")).lower()
 
     @staticmethod
-    def _display_date(raw_ts: str) -> str:
-        """Convert a raw UTC ISO timestamp to display-timezone YYYY-MM-DD (lowercased)."""
+    def _display_date(raw_ts: str, width: int = 10) -> str:
+        """Convert a raw UTC ISO timestamp to display-timezone YYYY-MM-DD (lowercased).
+
+        ``width=13`` gives the hour label ``YYYY-MM-DD HH`` instead.
+        """
         if not raw_ts:
             return ""
         try:
             from evtx_tool.gui.models import apply_tz as _apply_tz
-            return _apply_tz(raw_ts)[:10].lower()
+            return _apply_tz(raw_ts)[:width].lower()
         except Exception:
-            return str(raw_ts)[:10].lower()
+            return str(raw_ts).replace("T", " ")[:width].lower()
 
     def run(self) -> None:
         if self._col_key not in self._ALLOWED_KEYS:
@@ -346,6 +390,8 @@ class NormalColValueWorker(QThread):
                 if self._col_key == "timestamp_date":
                     # Use display-timezone date so popup values match the table.
                     s = self._display_date(ev.get("timestamp", ""))
+                elif self._col_key == "timestamp_hour":
+                    s = self._display_date(ev.get("timestamp", ""), 13)
                 elif self._col_key == "log":
                     s = str(ev.get("log") or ev.get("channel", ""))
                 else:
@@ -360,7 +406,8 @@ class NormalColValueWorker(QThread):
                     continue
                 if s:
                     counts[s] = counts.get(s, 0) + 1
-            top = dict(sorted(counts.items(), key=lambda x: -x[1])[:1000])
+            top = dict(sorted(counts.items(), key=lambda x: -x[1])
+                       [:popup_value_limit(self._col_key)])
             self.finished.emit(top)
         except Exception as exc:
             logger.warning("NormalColValueWorker: col_key=%r  error: %s",
@@ -471,7 +518,7 @@ class ColValuePrewarmWorker(QThread):
                     rows = con.execute(
                         f"SELECT {expr}, COUNT(*) FROM events "
                         f"WHERE {' AND '.join(clauses)} "
-                        f"GROUP BY {expr} ORDER BY COUNT(*) DESC LIMIT 1000",
+                        f"GROUP BY {expr} ORDER BY COUNT(*) DESC LIMIT {popup_value_limit(col_key)}",
                         params,
                     ).fetchall()
                 except Exception as exc:
@@ -556,7 +603,7 @@ class ColValueWorker(QThread):
                 rows = con.execute(
                     f"SELECT {expr}, COUNT(*) FROM events "
                     f"WHERE {where} "
-                    f"GROUP BY {expr} ORDER BY COUNT(*) DESC LIMIT 1000",
+                    f"GROUP BY {expr} ORDER BY COUNT(*) DESC LIMIT {popup_value_limit(self._col_key)}",
                     params,
                 ).fetchall()
                 self.finished.emit(
