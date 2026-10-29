@@ -82,14 +82,15 @@ def main() -> int:
     total = w._proxy_model.rowCount()
     check(f"the window holds the corpus ({total} rows)", total == len(evs))
 
-    truth = collections.Counter(apply_tz(e["timestamp"])[:10].lower() for e in evs)
+    # The Timestamp popup's leaves are display-timezone hours ("YYYY-MM-DD HH").
+    truth = collections.Counter(apply_tz(e["timestamp"])[:13].lower() for e in evs)
 
     print("\n=== clicking the Timestamp header ===")
     pop, values = open_popup(w, 3)
     check("a popup opens for the timestamp column", pop is not None)
     if pop is None:
         return 1
-    check("it is the Year -> Month -> Day tree", pop._tree is not None)
+    check("it is the Year -> Month -> Day -> Hour tree", pop._tree is not None)
     check("it is populated from the real dates",
           set(values or {}) == set(truth), f"{len(values or {})} values")
     check("years were built", len(pop._year_items) > 0,
@@ -106,8 +107,8 @@ def main() -> int:
     pump(500)
     qf = w._active_proxy.get_quick_filters()
     check("quick filters landed on the active proxy", bool(qf), str(qf[:2]))
-    check("they are all for timestamp_date",
-          all(f.get("key") == "timestamp_date" for f in qf))
+    check("they are all for timestamp_hour",
+          all(f.get("key") == "timestamp_hour" for f in qf))
     exp = sum(c for d, c in truth.items() if d in picked)
     got = w._active_proxy.rowCount()
     check(f"the table now shows exactly {ym[0]}-{ym[1]}", got == exp,
@@ -132,6 +133,13 @@ def main() -> int:
 
     print("\n=== clearing restores the table ===")
     w._clear_quick_filters()
+    # The background prewarm legitimately refills the cache 350 ms after the
+    # view settles; with pump(300) after a clear that itself takes 30-50 ms,
+    # that refill could land before the check below and fail it at random.
+    # Stop the timer so a non-empty cache can only mean the invalidation
+    # did not happen -- which is what the check is about.
+    if getattr(w, "_norm_prewarm_timer", None) is not None:
+        w._norm_prewarm_timer.stop()
     pump(300)
     check("clearing quick filters restores every row",
           w._active_proxy.rowCount() == total,
