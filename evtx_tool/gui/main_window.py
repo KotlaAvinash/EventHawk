@@ -511,7 +511,10 @@ class ColumnFilterPopup(QDialog):
         self._day_items: dict[tuple[str, str, str], QTreeWidgetItem] = {}
         self._tree_sync = False          # re-entrancy guard for itemChanged
         self._tree_pre_search = None     # {value: was_checked}, see _filter_tree
-        self.setMinimumWidth(260 if self._is_date_tree else 220)
+        # The date tree is four levels deep; at 260 px the hour rows
+        # ("20:00 – 20:59 (1,234)") were cut off.  320 fits them at normal
+        # font sizes, and the tree scrolls sideways for anything wider.
+        self.setMinimumWidth(320 if self._is_date_tree else 220)
         self.setMaximumHeight(400)
         self._build_ui()
         self._apply_popup_style()
@@ -621,6 +624,13 @@ class ColumnFilterPopup(QDialog):
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setUniformRowHeights(True)
+        # Never cut a row off with "…": size the column to its widest row and
+        # let a horizontal scrollbar appear when that is wider than the popup.
+        self._tree.setTextElideMode(Qt.TextElideMode.ElideNone)
+        self._tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        _hdr = self._tree.header()
+        _hdr.setStretchLastSection(False)
+        _hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
         self._tree.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self._tree.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 

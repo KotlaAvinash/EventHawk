@@ -118,6 +118,43 @@ def main() -> int:
     check("filter values are unchanged (days only)", vals == sorted(VALUES), f"{vals}")
 
     p.close()
+
+    # ── deep rows are never cut off ───────────────────────────────────────────
+    # Reported: at the 4th level an hour row read "20:00 – 2…" with no way to
+    # see the rest.  The column must be as wide as its widest row, and when
+    # that is wider than the popup a horizontal scrollbar must reach it.
+    big = {"2026-08-05 20": 1_234_567, "2026-08-05 21": 7, "2025-12-31 23": 3}
+    p = ColumnFilterPopup(DATE_COL, big)
+    p.show(); app.processEvents()
+    t = p._tree
+    t.expandAll(); app.processEvents()
+    check("the Timestamp popup opens at least 320 px wide", p.width() >= 320, f"{p.width()} px")
+    check("rows are not elided", t.textElideMode() == Qt.TextElideMode.ElideNone)
+    fm = t.fontMetrics()
+    hour = next(c._item for c in p._checkboxes if c.property("filter_value") == "2026-08-05 20")
+    # x where the row's content starts (after indentation + arrow) + checkbox + text
+    needed = t.visualItemRect(hour).left() + 16 + fm.horizontalAdvance(hour.text(0))
+    check("the column is wide enough for the deepest, longest row",
+          t.columnWidth(0) >= needed, f"column {t.columnWidth(0)} px, row needs {needed} px")
+    hbar = t.horizontalScrollBar()
+    vp = t.viewport().width()
+    if t.columnWidth(0) > vp:
+        check("a horizontal scrollbar appears when a row is wider than the popup",
+              hbar.isVisible() and hbar.maximum() > 0, f"max {hbar.maximum()}")
+        hbar.setValue(hbar.maximum()); app.processEvents()
+        check("scrolling right brings the end of the row into view",
+              needed - hbar.value() <= vp, f"row ends at {needed - hbar.value()}, viewport {vp}")
+    else:
+        check("the deepest row fits without scrolling", needed <= vp,
+              f"needs {needed}, viewport {vp}")
+    # force it narrow: the scrollbar must take over
+    p.setMinimumWidth(0); p.resize(200, p.height()); app.processEvents()
+    vp = t.viewport().width()
+    check("squeezed narrow, the tree scrolls sideways instead of cutting text",
+          t.columnWidth(0) > vp and hbar.maximum() > 0,
+          f"column {t.columnWidth(0)} px, viewport {vp} px, scroll max {hbar.maximum()}")
+    p.close()
+
     print("\n" + "=" * 60)
     bad = [n for n, ok in res if not ok]
     print(f"RESULT: {len(res)-len(bad)}/{len(res)} passed")
