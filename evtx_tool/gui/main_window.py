@@ -22,12 +22,13 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 from PySide6.QtCore import (
-    QEvent, QModelIndex, QPoint, QSortFilterProxyModel, Qt, QThread, QTimer, Signal, Slot,
+    QEvent, QModelIndex, QPoint, QPointF, QRectF, QSortFilterProxyModel, Qt, QThread,
+    QTimer, Signal, Slot,
     QPropertyAnimation, QEasingCurve, QSettings, QFileSystemWatcher,
 )
 from PySide6.QtGui import (
-    QAction, QColor, QFont, QKeySequence, QIcon, QPainter, QPixmap,
-    QStandardItem, QStandardItemModel,
+    QAction, QColor, QFont, QKeySequence, QIcon, QPainter, QPainterPath, QPen,
+    QPixmap, QPolygonF, QStandardItem, QStandardItemModel,
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QComboBox, QDateTimeEdit,
@@ -36,7 +37,8 @@ from PySide6.QtWidgets import (
     QMainWindow, QMessageBox, QProgressBar, QProgressDialog, QPushButton, QRadioButton,
     QScrollArea,
     QSizePolicy, QSplitter, QStatusBar, QStyle, QStyleOptionComboBox,
-    QStylePainter, QTabWidget, QTableView, QTableWidget,
+    QStyledItemDelegate, QStyleOptionViewItem, QStylePainter, QTabWidget, QTableView,
+    QTableWidget,
     QTableWidgetItem, QTextBrowser, QToolBar, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget, QSpinBox,
 )
@@ -345,6 +347,89 @@ class _DateLeafProxy:
         self._item.setHidden(not visible)
 
 
+def _contrast_ink(fill: QColor) -> QColor:
+    """Black-ish or white ink, whichever reads better on *fill*."""
+    return QColor("#ffffff") if fill.lightnessF() < 0.62 else QColor(COLORS["text"])
+
+
+class _TickDelegate(QStyledItemDelegate):
+    """Paints a ✓ (checked) or – (partly checked) inside the item checkbox.
+
+    The stylesheet indicator is a plain filled square, so "all", "some" and
+    "none" of a year/month were told apart only by a shade of amber.  A
+    spreadsheet-style tick and dash make the three states readable at a glance.
+    """
+
+    def paint(self, painter, option, index) -> None:
+        super().paint(painter, option, index)
+        state = index.data(Qt.ItemDataRole.CheckStateRole)
+        if state is None:
+            return
+        state = Qt.CheckState(state)
+        if state == Qt.CheckState.Unchecked:
+            return
+        opt = QStyleOptionViewItem(option)
+        self.initStyleOption(opt, index)
+        widget = option.widget
+        style = widget.style() if widget is not None else QApplication.style()
+        box = style.subElementRect(
+            QStyle.SubElement.SE_ItemViewItemCheckIndicator, opt, widget
+        )
+        if not box.isValid():
+            return
+        fill_key = "accent" if state == Qt.CheckState.Checked else "border_focus"
+        pen = QPen(_contrast_ink(QColor(COLORS[fill_key])), 2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(pen)
+        b = QRectF(box).adjusted(3, 3, -3, -3)
+        if state == Qt.CheckState.Checked:
+            path = QPainterPath()
+            path.moveTo(b.left(), b.top() + b.height() * 0.55)
+            path.lineTo(b.left() + b.width() * 0.38, b.bottom())
+            path.lineTo(b.right(), b.top())
+            painter.drawPath(path)
+        else:
+            y = b.center().y()
+            painter.drawLine(QPointF(b.left(), y), QPointF(b.right(), y))
+        painter.restore()
+
+
+class _ExpandArrowTree(QTreeWidget):
+    """QTreeWidget that shows ▸ / ▾ on every row that can be expanded.
+
+    The app stylesheet styles ``QTreeWidget::branch`` without an image, which
+    removes Qt's own expand arrows: the date tree could be opened but nothing
+    said so.  This draws a small triangle in the branch area of rows that have
+    children, in the current theme's text colour.  Clicking it (or
+    double-clicking the row) expands, exactly as before.
+    """
+
+    _ARROW = 9   # triangle box, px
+
+    def drawBranches(self, painter, rect, index) -> None:
+        if not self.model().hasChildren(index):
+            return
+        indent = self.indentation()
+        cell = QRectF(rect.right() - indent + 1, rect.top(), indent, rect.height())
+        a = self._ARROW
+        cx, cy = cell.center().x(), cell.center().y()
+        if self.isExpanded(index):
+            pts = [QPointF(cx - a / 2, cy - a / 4), QPointF(cx + a / 2, cy - a / 4),
+                   QPointF(cx, cy + a / 3)]
+        else:
+            pts = [QPointF(cx - a / 4, cy - a / 2), QPointF(cx - a / 4, cy + a / 2),
+                   QPointF(cx + a / 3, cy)]
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(COLORS["text_dim"]))
+        painter.drawPolygon(QPolygonF(pts))
+        painter.restore()
+
+
 class ColumnFilterPopup(QDialog):
     """
     Excel-style dropdown that appears when clicking a filterable column header.
@@ -527,7 +612,8 @@ class ColumnFilterPopup(QDialog):
         Year and month rows carry the summed event count of everything beneath
         them, so the busy day is visible while the tree is still collapsed.
         """
-        self._tree = QTreeWidget()
+        self._tree = _ExpandArrowTree()
+        self._tree.setItemDelegate(_TickDelegate(self._tree))
         self._tree.setHeaderHidden(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setUniformRowHeights(True)
