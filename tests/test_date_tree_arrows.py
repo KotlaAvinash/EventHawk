@@ -130,6 +130,8 @@ def main() -> int:
     t.expandAll(); app.processEvents()
     check("the Timestamp popup opens at least 320 px wide", p.width() >= 320, f"{p.width()} px")
     check("rows are not elided", t.textElideMode() == Qt.TextElideMode.ElideNone)
+    check("the bottom scrollbar is always shown, like the right one",
+          t.horizontalScrollBar().isVisible())
     fm = t.fontMetrics()
     hour = next(c._item for c in p._checkboxes if c.property("filter_value") == "2026-08-05 20")
     # x where the row's content starts (after indentation + arrow) + checkbox + text

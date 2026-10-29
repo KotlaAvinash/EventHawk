@@ -625,9 +625,11 @@ class ColumnFilterPopup(QDialog):
         self._tree.setRootIsDecorated(True)
         self._tree.setUniformRowHeights(True)
         # Never cut a row off with "…": size the column to its widest row and
-        # let a horizontal scrollbar appear when that is wider than the popup.
+        # scroll sideways when that is wider than the popup.  The horizontal
+        # scrollbar is always shown, like the vertical one, so it is obvious
+        # the deeper rows can be scrolled into view.
         self._tree.setTextElideMode(Qt.TextElideMode.ElideNone)
-        self._tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self._tree.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         _hdr = self._tree.header()
         _hdr.setStretchLastSection(False)
         _hdr.setSectionResizeMode(0, QHeaderView.ResizeMode.ResizeToContents)
