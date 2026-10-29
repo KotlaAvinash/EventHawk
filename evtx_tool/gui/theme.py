@@ -867,7 +867,7 @@ def save_theme(name: str) -> None:
 
 # ── Change listeners ───────────────────────────────────────────────────────────
 # Modules that cache QColor objects (the table models) register a callback to
-# rebuild them; the main window registers one to re-render its detail pane.
+# rebuild them when the theme changes.
 
 _listeners: list = []
 
@@ -945,7 +945,7 @@ def _retheme_existing(app, dark: bool) -> None:
     from PySide6.QtCore import Qt
     from PySide6.QtGui import QBrush, QColor
     from PySide6.QtWidgets import (
-        QWidget, QTreeWidget, QTreeWidgetItemIterator, QTableWidget,
+        QTreeWidget, QTreeWidgetItemIterator, QTableWidget,
         QListWidget, QTextBrowser, QAbstractItemView, QLabel,
     )
 
