@@ -42,7 +42,7 @@ The EventHawk desktop GUI is a PySide6 (Qt6) application with a three-panel layo
 
 | Section | Purpose |
 |---|---|
-| **Files / Folders** | Add individual `.evtx` files or entire folders. Supports drag-and-drop. |
+| **Files / Folders** | Add individual `.evtx` files or entire folders — with **+ Files** / **+ Dir**, or by dragging them from Explorer anywhere onto the window. |
 | **Profile selector** | Choose a DFIR profile to pre-filter events. Default: "All Events". |
 | **Juggernaut Mode** | Checkbox — enables the columnar high-volume engine for 2M+ events. |
 | **Analysis options** | Checkboxes for ATT&CK mapping, IOC extraction, correlation, Hayabusa. |

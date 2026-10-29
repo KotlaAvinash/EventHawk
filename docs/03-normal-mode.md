@@ -39,7 +39,7 @@ Use Normal Mode for datasets up to approximately **1 million events** or when yo
 In the left panel:
 - Click **Add Files** → select one or more `.evtx` files.
 - Click **Add Folder** → EventHawk recursively finds all `.evtx` files in that folder.
-- Or drag-and-drop files directly onto the left panel.
+- Or drag `.evtx` files or whole folders from Explorer and drop them anywhere on the window (Files list, events table, …). The Files list is outlined while you hover; non-EVTX items are skipped and named in the status bar. Dropping only adds to the list — click **PARSE** to load.
 
 **2. Choose a profile (optional)**
 

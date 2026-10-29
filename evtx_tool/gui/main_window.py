@@ -7457,6 +7457,11 @@ class MainWindow(QMainWindow):
         self._build_status_bar()
         self._connect_signals()
 
+        # Drag .evtx files / folders from Explorer anywhere onto the window.
+        self.setAcceptDrops(True)
+        self._drop_saved_style: str | None = None
+        self._drop_saved_status: str | None = None
+
         # Pre-populate profiles list
         self._refresh_profiles()
 
@@ -7692,7 +7697,9 @@ class MainWindow(QMainWindow):
         self._file_list = QListWidget()
         self._file_list.setMaximumHeight(110)
         self._file_list.setSpacing(0)
-        self._file_list.setToolTip("Files/directories to parse")
+        self._file_list.setToolTip(
+            "Files/directories to parse — drag .evtx files or folders onto the window to add them"
+        )
         layout.addWidget(self._file_list)
 
         btn_row = QHBoxLayout()
@@ -9003,6 +9010,106 @@ class MainWindow(QMainWindow):
         item.setToolTip(path)
         self._file_list.addItem(item)
         self._act_ps_extract.setEnabled(True)
+
+    # ── Drag and drop ─────────────────────────────────────────────────────
+    #
+    # Dropped items go through _add_path, exactly like "+ Files" / "+ Dir":
+    # .evtx files and folders (scanned for .evtx at parse time) are added and
+    # de-duplicated; anything else is skipped and named in the status bar so a
+    # drop never fails silently.  Nothing is parsed until PARSE is clicked.
+
+    @staticmethod
+    def _split_drop(mime) -> tuple[list[str], list[str], list[str]]:
+        """Local paths in a drag payload → (evtx_files, folders, skipped)."""
+        files, dirs, skipped = [], [], []
+        if mime is None or not mime.hasUrls():
+            return files, dirs, skipped
+        for url in mime.urls():
+            if not url.isLocalFile():
+                skipped.append(url.toString())
+                continue
+            path = os.path.normpath(url.toLocalFile())
+            if os.path.isdir(path):
+                dirs.append(path)
+            elif os.path.isfile(path) and path.lower().endswith(".evtx"):
+                files.append(path)
+            else:
+                skipped.append(path)
+        return files, dirs, skipped
+
+    @staticmethod
+    def _describe_drop(files: list, dirs: list) -> str:
+        parts = []
+        if files:
+            parts.append(f"{len(files)} EVTX file(s)")
+        if dirs:
+            parts.append(f"{len(dirs)} folder(s)")
+        return " and ".join(parts)
+
+    def _set_drop_highlight(self, on: bool) -> None:
+        """Dashed accent border on the Files list while a usable drag hovers.
+
+        Saves the list's stylesheet and the status text on the way in and
+        puts both back on the way out, so a cancelled drag leaves no trace.
+        """
+        if on:
+            if self._drop_saved_style is None:
+                self._drop_saved_style = self._file_list.styleSheet()
+                self._drop_saved_status = self._lbl_status.text()
+            self._file_list.setStyleSheet(
+                f"QListWidget {{ border: 2px dashed {COLORS['accent']}; }}"
+            )
+        elif self._drop_saved_style is not None:
+            self._file_list.setStyleSheet(self._drop_saved_style)
+            self._lbl_status.setText(self._drop_saved_status or "")
+            self._drop_saved_style = None
+            self._drop_saved_status = None
+
+    def dragEnterEvent(self, event) -> None:  # noqa: N802
+        files, dirs, _skipped = self._split_drop(event.mimeData())
+        if files or dirs:
+            event.acceptProposedAction()
+            self._set_drop_highlight(True)
+            self._lbl_status.setText(f"Drop to add {self._describe_drop(files, dirs)}")
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event) -> None:  # noqa: N802
+        files, dirs, _skipped = self._split_drop(event.mimeData())
+        if files or dirs:
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragLeaveEvent(self, event) -> None:  # noqa: N802
+        self._set_drop_highlight(False)
+        event.accept()
+
+    def dropEvent(self, event) -> None:  # noqa: N802
+        self._set_drop_highlight(False)
+        files, dirs, skipped = self._split_drop(event.mimeData())
+        if not (files or dirs):
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        listed = {os.path.normcase(self._file_list.item(i).data(Qt.ItemDataRole.UserRole))
+                  for i in range(self._file_list.count())}
+        new_files = [p for p in files if os.path.normcase(p) not in listed]
+        new_dirs = [p for p in dirs if os.path.normcase(p) not in listed]
+        for path in new_files + new_dirs:
+            self._add_path(path)
+        dup = len(files) + len(dirs) - len(new_files) - len(new_dirs)
+        if new_files or new_dirs:
+            msg = f"Added {self._describe_drop(new_files, new_dirs)} — click PARSE to load"
+        else:
+            msg = "Nothing new added"
+        if dup:
+            msg += f"  ·  {dup} already in the list"
+        if skipped:
+            names = ", ".join(os.path.basename(x) or x for x in skipped[:3])
+            more = f" (+{len(skipped) - 3} more)" if len(skipped) > 3 else ""
+            msg += f"  ·  skipped {len(skipped)} non-EVTX item(s): {names}{more}"
+        self._lbl_status.setText(msg)
 
     def _on_add_files(self) -> None:
         paths, _ = QFileDialog.getOpenFileNames(
