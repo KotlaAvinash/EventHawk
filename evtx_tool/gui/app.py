@@ -374,7 +374,7 @@ def launch(initial_paths: list[str] | None = None) -> None:
 
         app.setWindowIcon(_icon)
 
-    # Apply dark theme
+    # Apply the saved colour theme (Light by default; Theme menu switches it)
     from .theme import apply_theme
     apply_theme(app)
 

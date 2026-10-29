@@ -28,12 +28,13 @@ from typing import Any
 from PySide6.QtCore import (
     QAbstractTableModel, QModelIndex, Qt, QThread, Signal, Slot,
 )
-from PySide6.QtGui import QColor, QFont
+from PySide6.QtGui import QFont
 
 logger = logging.getLogger(__name__)
 
 # ── Shared column/colour imports from the normal-mode model ───────────────────
 
+from evtx_tool.gui.theme import add_theme_listener, qc
 from evtx_tool.gui.models import (
     COLUMNS,
     COL_ATTACK,
@@ -62,21 +63,29 @@ from evtx_tool.gui.models import (
 )
 
 # ── Colour palette ─────────────────────────────────────────────────────────────
+# Rebuilt for the active theme by _refresh_theme_colors().
 
-_LEVEL_FG = {
-    "Critical":    QColor("#a01800"),
-    "Error":       QColor("#a01800"),
-    "Warning":     QColor("#7a4c00"),
-    "Information": QColor("#1e1a14"),
-    "Verbose":     QColor("#9a8878"),
-    "LogAlways":   QColor("#9a8878"),
-}
+def _refresh_theme_colors(_theme: str | None = None) -> None:
+    global _LEVEL_FG, _BG_NORMAL, _BG_ALT, _BG_BOOKMARK, _COLOR_GRAY
+    _LEVEL_FG = {
+        "Critical":    qc("#a01800"),
+        "Error":       qc("#a01800"),
+        "Warning":     qc("#7a4c00"),
+        "Information": qc("#1e1a14"),
+        "Verbose":     qc("#9a8878"),
+        "LogAlways":   qc("#9a8878"),
+    }
 
-_BG_NORMAL   = QColor("#f5f0e8")
-_BG_ALT      = QColor("#ede8d8")
-_BG_BOOKMARK = QColor("#e8c96e")   # amber highlight for bookmarked rows
+    _BG_NORMAL   = qc("#f5f0e8")
+    _BG_ALT      = qc("#ede8d8")
+    _BG_BOOKMARK = qc("#e8c96e")   # amber highlight for bookmarked rows
+    _COLOR_GRAY  = qc("#9a8878")
+
+
+_refresh_theme_colors()
+add_theme_listener(_refresh_theme_colors)
+
 _MONO_FONT   = QFont("Consolas", 9)
-_COLOR_GRAY  = QColor("#9a8878")
 
 # ── Visible window cache size ──────────────────────────────────────────────────
 # Rows loaded from Arrow per slice — amortises Python/C++ boundary call overhead.

@@ -48,7 +48,7 @@ from .models import (
 )
 from .worker import ParseWorker, AnalysisWorker
 from evtx_tool.analysis.analysis_runner import AnalysisRunner
-from .theme import COLORS
+from .theme import COLORS, qc, tc
 from .filter_dialog import FilterDialog
 
 
@@ -1469,26 +1469,26 @@ class EventTimeZoneDialog(QDialog):
     # ── Light palette (class-level helper) ────────────────────────────────────
     @staticmethod
     def _make_light_palette():
-        from PySide6.QtGui import QPalette, QColor
+        from PySide6.QtGui import QPalette
         p = QPalette()
-        p.setColor(QPalette.ColorRole.Window,          QColor("#f5f0e8"))
-        p.setColor(QPalette.ColorRole.WindowText,      QColor("#1e1a14"))
-        p.setColor(QPalette.ColorRole.Base,            QColor("#faf7f2"))
-        p.setColor(QPalette.ColorRole.AlternateBase,   QColor("#ede8df"))
-        p.setColor(QPalette.ColorRole.Text,            QColor("#1e1a14"))
-        p.setColor(QPalette.ColorRole.Button,          QColor("#e4ddd3"))
-        p.setColor(QPalette.ColorRole.ButtonText,      QColor("#1e1a14"))
-        p.setColor(QPalette.ColorRole.Highlight,       QColor("#7a5c1e"))
-        p.setColor(QPalette.ColorRole.HighlightedText, QColor("#ffffff"))
-        p.setColor(QPalette.ColorRole.ToolTipBase,     QColor("#e4ddd3"))
-        p.setColor(QPalette.ColorRole.ToolTipText,     QColor("#1e1a14"))
-        p.setColor(QPalette.ColorRole.PlaceholderText, QColor("#9a8878"))
+        p.setColor(QPalette.ColorRole.Window,          qc("#f5f0e8"))
+        p.setColor(QPalette.ColorRole.WindowText,      qc("#1e1a14"))
+        p.setColor(QPalette.ColorRole.Base,            qc("#faf7f2"))
+        p.setColor(QPalette.ColorRole.AlternateBase,   qc("#ede8df"))
+        p.setColor(QPalette.ColorRole.Text,            qc("#1e1a14"))
+        p.setColor(QPalette.ColorRole.Button,          qc("#e4ddd3"))
+        p.setColor(QPalette.ColorRole.ButtonText,      qc("#1e1a14"))
+        p.setColor(QPalette.ColorRole.Highlight,       qc("#7a5c1e"))
+        p.setColor(QPalette.ColorRole.HighlightedText, qc("#ffffff"))
+        p.setColor(QPalette.ColorRole.ToolTipBase,     qc("#e4ddd3"))
+        p.setColor(QPalette.ColorRole.ToolTipText,     qc("#1e1a14"))
+        p.setColor(QPalette.ColorRole.PlaceholderText, qc("#9a8878"))
         # Disabled group – warm-muted on cream background
-        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, QColor("#9a8878"))
-        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       QColor("#9a8878"))
-        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, QColor("#9a8878"))
-        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base,       QColor("#ede8df"))
-        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Button,     QColor("#ede8df"))
+        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.WindowText, qc("#9a8878"))
+        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Text,       qc("#9a8878"))
+        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.ButtonText, qc("#9a8878"))
+        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Base,       qc("#ede8df"))
+        p.setColor(QPalette.ColorGroup.Disabled, QPalette.ColorRole.Button,     qc("#ede8df"))
         return p
 
     # ── Comprehensive cream stylesheet ─────────────────────────────────────────
@@ -2516,9 +2516,9 @@ class _LogonSessionDialog(QDialog):
         self._tbl.setSortingEnabled(False)
         self._tbl.setRowCount(len(sessions))
 
-        active_color  = QColor("#fdf5dc")   # warm yellow for active (no logoff)
-        danger_color  = QColor("#fde8e0")   # pale red for dangerous privs
-        danger_fg     = QColor("#a01800")
+        active_color  = qc("#fdf5dc")   # warm yellow for active (no logoff)
+        danger_color  = qc("#fde8e0")   # pale red for dangerous privs
+        danger_fg     = qc("#a01800")
 
         for row, s in enumerate(sessions):
             row_bg = None
@@ -2611,9 +2611,9 @@ class _LogonSessionDialog(QDialog):
         active    = sum(1 for s in sessions if s["scope_start_ts"] and not s["scope_end_ts"])
         dangerous = sum(1 for s in sessions if s["has_dangerous"])
         danger_txt = (
-            f"<span style='color:#a01800;font-weight:bold;'>⚠ {dangerous} with dangerous privileges</span>"
+            f"<span style='color:{tc('#a01800')};font-weight:bold;'>⚠ {dangerous} with dangerous privileges</span>"
             if dangerous else
-            "<span style='color:#2e6820;'>✓ No dangerous privileges detected</span>"
+            f"<span style='color:{tc('#2e6820')};'>✓ No dangerous privileges detected</span>"
         )
         self._lbl_summary.setText(
             f"<b>{total}</b> session(s) &nbsp;│&nbsp; "
@@ -2762,13 +2762,13 @@ class _MissingRecordIdDialog(QDialog):
         # Summary header
         if total_missing == 0:
             summary_text = (
-                f"<span style='color:#2e6820;font-size:10pt;font-weight:bold;'>"
+                f"<span style='color:{tc('#2e6820')};font-size:10pt;font-weight:bold;'>"
                 f"No gaps found</span> &mdash; all Record ID sequences are complete "
                 f"across {file_count} file(s)."
             )
         else:
             summary_text = (
-                f"<span style='color:#a01800;font-size:10pt;font-weight:bold;'>"
+                f"<span style='color:{tc('#a01800')};font-size:10pt;font-weight:bold;'>"
                 f"{total_missing:,} missing Record ID(s)</span> detected across "
                 f"{file_count} file(s). Gaps may indicate log tampering or clearing."
             )
@@ -3740,10 +3740,10 @@ class _WifiHistoryDialog(QDialog):
         # historical display); at 3/6 they use the parallel full-precision fields.
         digits = get_ts_precision()
 
-        col_failed   = QColor("#fde8e0")   # pale red   — EID 8004 failed
-        col_authfail = QColor("#fff8dc")   # pale yellow — auth failures
-        col_open     = QColor("#fff3cd")   # amber      — open network
-        col_active   = QColor("#edf7ed")   # pale green — still connected
+        col_failed   = qc("#fde8e0")   # pale red   — EID 8004 failed
+        col_authfail = qc("#fff8dc")   # pale yellow — auth failures
+        col_open     = qc("#fff3cd")   # amber      — open network
+        col_active   = qc("#edf7ed")   # pale green — still connected
 
         for row, s in enumerate(sessions):
             if s["connect_eid"] == 8004:
@@ -3840,13 +3840,13 @@ class _WifiHistoryDialog(QDialog):
             parts.append(f"<b>{active}</b> active (no disconnect recorded)")
         if open_n:
             parts.append(
-                f"<span style='color:#a01800;'>⚠ {open_n} open network(s) (no encryption)</span>"
+                f"<span style='color:{tc('#a01800')};'>⚠ {open_n} open network(s) (no encryption)</span>"
             )
         # Provenance: surface incomplete-dataset state directly in the summary bar
         # so the user never has to remember the earlier pop-up warning.
         if self._truncated:
             parts.append(
-                "<span style='color:#8a4800;'>⚠ Results capped at 200,000 events — "
+                f"<span style='color:{tc('#8a4800')};'>⚠ Results capped at 200,000 events — "
                 "later sessions may be missing</span>"
             )
         self._lbl_summary.setText(" &nbsp;│&nbsp; ".join(parts))
@@ -5599,7 +5599,7 @@ class _RemoteAssistanceDialog(QDialog):
                     # Store the shown_sessions index for context-menu lookup.
                     item.setData(Qt.ItemDataRole.UserRole, orig_row)
                     color = self._TYPE_COLORS.get(s["type"], "#1e1a14")
-                    item.setForeground(QColor(color))
+                    item.setForeground(qc(color))
                 tbl.setItem(r, c, item)
         tbl.setSortingEnabled(True)
 
@@ -5613,15 +5613,15 @@ class _RemoteAssistanceDialog(QDialog):
             f"<b>{t}</b>: {n}" for t, n in sorted(by_type.items())
         )
         html = (
-            f"<span style='color:#1e1a14;'>"
+            f"<span style='color:{tc('#1e1a14')};'>"
             f"Showing <b>{shown}</b> of <b>{total}</b> session(s)"
             f"</span>"
         )
         if type_parts:
-            html += f"&ensp;—&ensp;<span style='color:#5a4030;'>{type_parts}</span>"
+            html += f"&ensp;—&ensp;<span style='color:{tc('#5a4030')};'>{type_parts}</span>"
         if self._truncated:
             html += (
-                "&ensp;<span style='color:#8a4800;'>⚠ Results capped at 200,000 events — "
+                f"&ensp;<span style='color:{tc('#8a4800')};'>⚠ Results capped at 200,000 events — "
                 "later sessions may be missing</span>"
             )
         if hasattr(self, "_lbl_summary"):
@@ -6715,9 +6715,9 @@ class _ComputerNormalisationDialog(QDialog):
                     # Stash orig_row index for context-menu lookup.
                     item.setData(Qt.ItemDataRole.UserRole, orig_row)
                     if r["variant_count"] > 1:
-                        item.setForeground(QColor("#7a5c1e"))   # highlight
+                        item.setForeground(qc("#7a5c1e"))   # highlight
                 if c == 4 and r["forwarded"]:
-                    item.setForeground(QColor("#8a4800"))       # amber
+                    item.setForeground(qc("#8a4800"))       # amber
                 if c == 5:
                     # Full variant list as tooltip so truncation is non-lossy
                     item.setToolTip(_vd_full)
@@ -6732,10 +6732,10 @@ class _ComputerNormalisationDialog(QDialog):
         total_events  = sum(r["event_count"] for r in self._all_rows)
         total_raw_vars = sum(r["variant_count"] for r in self._all_rows)
         html = (
-            f"<span style='color:#1e1a14;'>"
+            f"<span style='color:{tc('#1e1a14')};'>"
             f"Showing <b>{shown}</b> of <b>{total}</b> normalised host(s)"
             f"</span>"
-            f"&ensp;—&ensp;<span style='color:#5a4030;'>"
+            f"&ensp;—&ensp;<span style='color:{tc('#5a4030')};'>"
             f"<b>{total_raw_vars}</b> raw Computer string(s) collapsed&ensp;|"
             f"&ensp;<b>{multi}</b> with multiple variants&ensp;|"
             f"&ensp;<b>{fwd}</b> seen in Forwarded logs&ensp;|"
@@ -7571,6 +7571,20 @@ class MainWindow(QMainWindow):
             _act.setData(_d)
             self._prec_group.addAction(_act)
             _act.triggered.connect(lambda _checked=False, dd=_d: self._on_ts_precision_changed(dd))
+
+        # ── Theme ──────────────────────────────────────────────────────────
+        # Light (warm cream) or Dark.  Applies live and is remembered.
+        from .theme import current_theme
+        theme_menu = mb.addMenu("Theme")
+        theme_menu.setToolTip("Switch between the light and dark colour themes")
+        self._theme_group = QActionGroup(self)
+        self._theme_group.setExclusive(True)
+        for _label, _name in (("Light", "light"), ("Dark", "dark")):
+            _act = theme_menu.addAction(_label)
+            _act.setCheckable(True)
+            _act.setChecked(_name == current_theme())
+            self._theme_group.addAction(_act)
+            _act.triggered.connect(lambda _checked=False, nn=_name: self._on_theme_changed(nn))
 
         # ── PowerShell History ─────────────────────────────────────────────
         self._act_ps_extract = mb.addAction("PowerShell History")
@@ -15165,6 +15179,15 @@ class MainWindow(QMainWindow):
         }
         self._set_status(f"Timezone: {_labels.get(self._tz_mode, self._tz_mode)}")
 
+    def _on_theme_changed(self, name: str) -> None:
+        """Switch the colour theme live and remember it for the next launch."""
+        from .theme import apply_theme, save_theme
+        apply_theme(QApplication.instance(), name)
+        try:
+            save_theme(name)
+        except Exception:
+            pass
+
     def _on_ts_precision_changed(self, digits: int) -> None:
         """Apply a new timestamp display precision (0/3/6) and refresh all views.
 
@@ -15439,7 +15462,7 @@ class MainWindow(QMainWindow):
             )
             if missing:
                 section += (
-                    f"&nbsp;&nbsp;<span style='color:#a01800;font-weight:bold;'>"
+                    f"&nbsp;&nbsp;<span style='color:{tc('#a01800')};font-weight:bold;'>"
                     f"Missing ({len(missing):,}):</span> "
                     + ", ".join(ranges[:200])
                 )
@@ -15447,7 +15470,7 @@ class MainWindow(QMainWindow):
                     section += f" <i>… and {len(ranges) - 200:,} more ranges</i>"
             else:
                 section += (
-                    f"&nbsp;&nbsp;<span style='color:#2e6820;font-weight:bold;'>"
+                    f"&nbsp;&nbsp;<span style='color:{tc('#2e6820')};font-weight:bold;'>"
                     f"No gaps — sequence is complete.</span>"
                 )
             report_sections.append(section)

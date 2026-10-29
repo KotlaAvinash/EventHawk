@@ -92,11 +92,23 @@ py -3 evtx_tool.py gui
 
 ---
 
+## Themes
+
+Two colour themes are built in — **Light** (warm cream, the default) and **Dark**
+(charcoal-brown with bright amber accents). Switch from the **Theme** menu in
+the menu bar. The change applies immediately to the main window, every open
+dialog, the events table and the analysis tabs — no restart or re-parse — and
+the choice is remembered for the next launch.
+
+Exported reports (HTML / PDF) keep their light, print-friendly colours whichever
+theme the GUI uses.
+
+---
+
 ## Limitations
 
 - The window layout is fixed — panels are not independently detachable.
 - Column order is not currently user-rearrangeable via drag.
-- Dark theme only in this version; light theme is on the roadmap.
 
 ---
 
