@@ -7194,6 +7194,138 @@ class _FilterTargetDialog(QDialog):
         return [fp for fp, cb in self._checkboxes if cb.isChecked()]
 
 
+# Export formats offered in the Export dialog: (key, label, one-line hint).
+# The hints say what each is FOR, and that PDF is a summary, not a data dump.
+_EXPORT_FORMATS: list[tuple[str, str, str]] = [
+    ("html", "HTML report",
+     "Opens in any web browser \u2014 summary, ATT&CK, IOCs and every event."),
+    ("pdf",  "PDF report",
+     "Printable summary \u2014 overview, ATT&CK, IOCs and the first 500 events."),
+    ("csv",  "CSV",
+     "Spreadsheet (Excel, LibreOffice) \u2014 one row per event."),
+    ("json", "JSON",
+     "Full structured data \u2014 for scripts and other tools."),
+    ("xml",  "XML",
+     "Structured data \u2014 for tools that need XML."),
+]
+_EXPORT_FILTERS: dict[str, str] = {
+    "html": "HTML Report (*.html)", "pdf": "PDF Report (*.pdf)",
+    "csv": "CSV (*.csv)", "json": "JSON (*.json)", "xml": "XML (*.xml)",
+}
+_EXPORT_FORMAT_KEY = "export_format"     # QSettings("EventHawk", "GUI")
+
+
+def _export_save_path(parent, title: str, fmt: str, stem: str) -> str:
+    """Save dialog limited to *fmt*, pre-filled with a dated file name.
+
+    Returns "" if cancelled.  The chosen extension is enforced: a name typed
+    without it (or with another one) gets it appended, so the file written
+    is always the format the analyst picked in the Export dialog.
+    """
+    import datetime as _dt
+    default = f"{stem}_{_dt.datetime.now():%Y%m%d_%H%M}.{fmt}"
+    path, _ = QFileDialog.getSaveFileName(parent, title, default, _EXPORT_FILTERS[fmt])
+    if path and not path.lower().endswith("." + fmt):
+        path += "." + fmt
+    return path
+
+
+class _ExportFormatBox(QGroupBox):
+    """"Format:" choice for the Export dialogs — one radio per export format.
+
+    Remembers the last choice.  Formats a caller cannot produce (PDF in
+    Juggernaut Mode) are shown disabled with the reason, rather than hidden,
+    so the analyst can see all five and why one is unavailable.
+    """
+
+    def __init__(self, disabled: dict[str, str] | None = None, parent=None):
+        super().__init__("Format:", parent)
+        from PySide6.QtWidgets import QButtonGroup
+        disabled = disabled or {}
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(4)
+        row = QHBoxLayout()
+        row.setSpacing(14)
+        self._grp = QButtonGroup(self)
+        self._buttons: dict[str, QRadioButton] = {}
+        for i, (key, label, hint) in enumerate(_EXPORT_FORMATS):
+            rb = QRadioButton(label)
+            if key in disabled:
+                rb.setEnabled(False)
+                rb.setToolTip(disabled[key])
+            else:
+                rb.setToolTip(hint)
+            self._grp.addButton(rb, i)
+            self._buttons[key] = rb
+            row.addWidget(rb)
+        row.addStretch()
+        lay.addLayout(row)
+        self._hint = QLabel()
+        self._hint.setWordWrap(True)
+        self._hint.setObjectName("statsLabel")
+        lay.addWidget(self._hint)
+
+        try:
+            saved = str(QSettings("EventHawk", "GUI").value(_EXPORT_FORMAT_KEY, "html") or "html")
+        except Exception:
+            saved = "html"
+        if saved not in self._buttons or not self._buttons[saved].isEnabled():
+            saved = next(k for k, _l, _h in _EXPORT_FORMATS if self._buttons[k].isEnabled())
+        self._buttons[saved].setChecked(True)
+        self._grp.idToggled.connect(lambda _i, on: on and self._update_hint())
+        self._update_hint()
+
+    def _update_hint(self) -> None:
+        key = self.selected_format()
+        self._hint.setText(next(h for k, _l, h in _EXPORT_FORMATS if k == key))
+
+    def selected_format(self) -> str:
+        """'html' | 'pdf' | 'csv' | 'json' | 'xml'."""
+        return _EXPORT_FORMATS[self._grp.checkedId()][0]
+
+    def remember(self) -> None:
+        try:
+            QSettings("EventHawk", "GUI").setValue(_EXPORT_FORMAT_KEY, self.selected_format())
+        except Exception:
+            pass
+
+
+class _ExportFormatDialog(QDialog):
+    """Format-only Export dialog for Juggernaut Mode (it has no scope choice)."""
+
+    def __init__(self, total: int, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Export")
+        self.setMinimumWidth(440)
+        root = QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
+        title = QLabel(f"Export {total:,} events (current view, \u26a1 Juggernaut Mode)")
+        f = title.font(); f.setBold(True); title.setFont(f)
+        root.addWidget(title)
+        self._fmt = _ExportFormatBox(disabled={
+            "pdf": "PDF report isn\u2019t available in Juggernaut Mode \u2014 "
+                   "use HTML for a report.",
+        })
+        root.addWidget(self._fmt)
+        btns = QHBoxLayout()
+        btns.addStretch()
+        ok = QPushButton("Export"); ok.setDefault(True); ok.setMinimumWidth(80)
+        ok.clicked.connect(self._on_ok)
+        cancel = QPushButton("Cancel"); cancel.setMinimumWidth(70)
+        cancel.clicked.connect(self.reject)
+        btns.addWidget(ok); btns.addWidget(cancel)
+        root.addLayout(btns)
+
+    def _on_ok(self) -> None:
+        self._fmt.remember()
+        self.accept()
+
+    def selected_format(self) -> str:
+        return self._fmt.selected_format()
+
+
 class _ExportScopeDialog(QDialog):
     """
     Clean export-scope chooser with four radio-button options:
@@ -7330,6 +7462,10 @@ class _ExportScopeDialog(QDialog):
 
         self._files_box.setVisible(False)
         root.addWidget(self._files_box)
+
+        # ── Format ────────────────────────────────────────────────────────
+        self._fmt_box = _ExportFormatBox()
+        root.addWidget(self._fmt_box)
 
         # ── OK / Cancel ───────────────────────────────────────────────────
         root.addSpacing(4)
@@ -7503,7 +7639,12 @@ class _ExportScopeDialog(QDialog):
             QMessageBox.warning(self, "No Files Selected",
                                 "Please check at least one file to export.")
             return
+        self._fmt_box.remember()
         self.accept()
+
+    def selected_format(self) -> str:
+        """Returns 'html' | 'pdf' | 'csv' | 'json' | 'xml'."""
+        return self._fmt_box.selected_format()
 
     def selected_scope(self) -> str:
         """Returns 'view' | 'combined' | 'separate' | 'specific'."""
@@ -14554,11 +14695,12 @@ class MainWindow(QMainWindow):
             return
 
         scope = dlg.selected_scope()   # "view" | "combined" | "separate" | "specific"
+        fmt = dlg.selected_format()    # "html" | "pdf" | "csv" | "json" | "xml"
         specific_files = dlg.selected_files()  # set[str] — only used when scope="specific"
 
         # ── Export All Separate ────────────────────────────────────────────
         if scope == "separate":
-            self._export_separate(all_file_paths)
+            self._export_separate(fmt, all_file_paths)
             return
 
         # ── Resolve events for the other scopes ───────────────────────────
@@ -14599,12 +14741,8 @@ class MainWindow(QMainWindow):
                                     "No events found for the selected scope.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            f"Export Events — {export_label}",
-            "",
-            "HTML Report (*.html);;PDF Report (*.pdf);;CSV (*.csv);;JSON (*.json);;XML (*.xml)",
-        )
+        path = _export_save_path(self, f"Export Events — {export_label}", fmt,
+                                 "EventHawk_export")
         if not path:
             return
 
@@ -14624,28 +14762,18 @@ class MainWindow(QMainWindow):
             logger.exception("Event export failed: %s", path)
             QMessageBox.critical(self, "Export Failed", str(exc))
 
-    def _export_separate(self, file_paths: list[str]) -> None:
-        """Export each source file to its own output file (user picks the output folder)."""
+    def _export_separate(self, fmt: str, file_paths: list[str]) -> None:
+        """Export each source file to its own *fmt* file (user picks the output folder).
+
+        The format is the one chosen in the Export dialog; it used to be asked
+        again here, from a shorter list without PDF.
+        """
         out_dir = QFileDialog.getExistingDirectory(
             self, "Select Output Folder for Separate Exports"
         )
         if not out_dir:
             return
-
-        fmt_map = {
-            "html": "HTML Report (*.html)",
-            "csv": "CSV (*.csv)",
-            "json": "JSON (*.json)",
-            "xml": "XML (*.xml)",
-        }
-        from PySide6.QtWidgets import QInputDialog
-        fmt, ok = QInputDialog.getItem(
-            self, "Export Format", "Choose output format:",
-            ["CSV", "JSON", "HTML", "XML"], 0, False
-        )
-        if not ok:
-            return
-        ext = fmt.lower()
+        ext = fmt
 
         try:
             from evtx_tool.output.exporters import export
@@ -14688,11 +14816,12 @@ class MainWindow(QMainWindow):
                                     "No events match the current filters.")
             return
 
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            f"Export Events — ⚡ Juggernaut ({total:,} events)",
-            "",
-            "HTML Report (*.html);;CSV (*.csv);;JSON (*.json);;XML (*.xml)",
+        fmt_dlg = _ExportFormatDialog(total, parent=self)
+        if fmt_dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        path = _export_save_path(
+            self, f"Export Events — ⚡ Juggernaut ({total:,} events)",
+            fmt_dlg.selected_format(), "EventHawk_export",
         )
         if not path:
             return
