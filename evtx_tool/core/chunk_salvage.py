@@ -52,6 +52,11 @@ logger = logging.getLogger(__name__)
 _HDR_BLOCK   = 4_096
 _CHUNK_SIZE  = 65_536
 _CHUNK_MAGIC = b"ElfChnk\x00"
+# Windows initialises a chunk it has not written to yet with first = last =
+# 0xFFFFFFFFFFFFFFFF.  Read as a range that is "one record", which an empty
+# log (many channels never log anything) then reports as missing.
+_UNWRITTEN_ID = 0xFFFFFFFFFFFFFFFF
+_CHUNK_DATA_START = 0x200     # records begin here; free-space offset == this means none
 _FILE_MAGIC  = b"ElfFile\x00"
 
 
@@ -111,9 +116,17 @@ def read_chunk_index(filepath: str) -> dict:
 
         {
           "valid":   [(chunk_idx, first_id, last_id), ...],
-          "slack":   [chunk_idx, ...],   # all-zero header — normal pre-allocation
+          "slack":   [chunk_idx, ...],   # no records: all-zero header (normal
+                                         # pre-allocation) or a chunk Windows
+                                         # initialised but never wrote to
           "damaged": [chunk_idx, ...],   # non-zero garbage where a chunk should be
         }
+
+    An initialised-but-unwritten chunk has the record-ID placeholder
+    0xFFFFFFFFFFFFFFFF in both fields and its free-space offset at the start
+    of the record area.  Only that combination counts as empty: a placeholder
+    header over a record area that DOES hold data is inconsistent and is
+    reported as damaged, so a header rewrite cannot hide records.
 
     Never raises; on I/O failure returns empty lists.
     """
@@ -124,12 +137,16 @@ def read_chunk_index(filepath: str) -> dict:
         with open(filepath, "rb") as fh:
             for i in range(n):
                 fh.seek(_HDR_BLOCK + i * _CHUNK_SIZE)
-                h = fh.read(0x30)
-                if len(h) < 0x30:
+                h = fh.read(0x38)
+                if len(h) < 0x38:
                     break
                 if h[:8] == _CHUNK_MAGIC:
                     _fn, _ln, first_id, last_id = struct.unpack_from("<QQQQ", h, 8)
-                    if 0 < first_id <= last_id:
+                    if first_id == last_id == _UNWRITTEN_ID:
+                        free_off = struct.unpack_from("<I", h, 0x30)[0]
+                        (out["slack"] if free_off <= _CHUNK_DATA_START
+                         else out["damaged"]).append(i)
+                    elif 0 < first_id <= last_id:
                         out["valid"].append((i, first_id, last_id))
                     else:
                         out["damaged"].append(i)
